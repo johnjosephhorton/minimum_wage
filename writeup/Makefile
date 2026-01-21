@@ -1,6 +1,7 @@
 ts := $(shell /bin/date "+%Y-%m-%d---%H-%M-%S")
 project_name = minimum_wage
 images = images/bidding_interface
+PARENT_DIR := $(shell cd .. && pwd)
 
 include .env
 export
@@ -12,11 +13,22 @@ export
 .PHONY: docker
 
 docker:
-	@echo "Building docker image"
-	@cd .. && sudo docker build -t minimum_wage .
-	@echo "Running docker image"
-	@echo "Navigate to: http://localhost:8080/writeup/minimum_wage.pdf"
-	@cd .. & sudo docker run -p 8080:8000 minimum_wage
+	@echo "Building docker image (which includes data fetching)..."
+	@cd $(PARENT_DIR) && docker build -t minimum_wage .
+
+	@echo "Running container..."
+	@docker run --rm \
+		--env-file $(PARENT_DIR)/writeup/.env \
+		-w /minimum_wage/writeup \
+		-v $(PARENT_DIR)/writeup:/minimum_wage/writeup \
+		minimum_wage
+
+	# Export the docker image as a Tar export in the main directory
+	@echo "Archiving Docker image 'minimum_wage'..."
+	@docker save -o $(PARENT_DIR)/minimum_wage_data.tar minimum_wage
+	
+	@gzip $(PARENT_DIR)/minimum_wage_data.tar
+	@echo "Docker image archived as $(PARENT_DIR)/minimum_wage_data.tar.gz"
 
 
 ######################################
@@ -43,13 +55,15 @@ DIRS := plots tables parameters
 all: create-dirs main
 
 create-dirs:
+	@echo "Creating directories"
+	@pwd
 	@mkdir -p $(DIRS)
 
 
-../remote_data.tar.gz.gpg:
+../minimum_wage_data.tar.gz.gpg:
 	cd .. && ./fetch_data.sh
 
-fetch-data: ../remote_data.tar.gz.gpg
+fetch-data: ../minimum_wage_data.tar.gz.gpg
 	echo "Fetching data"
 
 
@@ -67,15 +81,26 @@ parameters += parameters/parameters.tex
 parameters/parameters.tex: ../analysis/parameters.R 
 	cd ../analysis && Rscript parameters.R
 
-parameters/effects_parameters.tex: ../analysis/utilities_outcome_experimental_plots.R
-
 parameters += parameters/effects_parameters.tex
 parameters/effects_parameters.tex: ../analysis/parameters_effects.R
 	cd ../analysis && Rscript parameters_effects.R 
 
+parameters += parameters/parameters_fill_and_hours.tex
+parameters/parameters_fill_and_hours.tex: ../analysis/plot_fill_and_hours.R 
+	cd ../analysis && Rscript plot_fill_and_hours.R
+
+parameters += parameters/did_parameters.tex
+parameters/did_parameters.tex: ../analysis/plot_did_all_outcomes.R 
+	cd ../analysis && Rscript plot_did_all_outcomes.R 
+
+parameters += parameters/parameters_composition.tex
+parameters/parameters_composition.tex: ../analysis/plot_composition.R
+	cd ../analysis && Rscript plot_composition.R 
+
 parameters += parameters/params_country_selection.tex
-parameters/params_country_selection.tex: ../analysis/parameters_country_selection.R 
+parameters/params_country_selection.tex: ../analysis/parameters_country_selection.R
 	cd ../analysis && Rscript parameters_country_selection.R
+
 
 ##########
 ## Figures
@@ -123,9 +148,13 @@ plots += ./plots/first_stage.pdf
 ./plots/first_stage.pdf: ../analysis/first_stage.R ../data/df_mw_first.csv
 	cd ../analysis && Rscript first_stage.R
 
-# Figure 3 is a diagram
+# Figure 3 is a TikZ diagram
 
+######################
+# Define three datasets as "data" to avoid repetition in creation rules of Figures 4, 5, A1, A2, B1, B2, B3
+###########
 data = ../data/df_mw_all.csv ../data/df_mw_admin.csv ../data/df_mw_lpw.csv
+######################
 
 # Figure 4
 # https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L638
@@ -145,30 +174,34 @@ plots += ./plots/event_study_hourly_rate_hired.pdf
 ./plots/event_study_hourly_rate_hired.pdf: ../analysis/plot_event_study_hourly_rate_hired.R ../data/event_study_hired.csv
 	cd ../analysis && Rscript plot_event_study_hourly_rate_hired.R
 
-### Figure 7 
+## Figure 7 
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L927
 plots += plots/did_all_outcomes.pdf
 ./plots/did_all_outcomes.pdf: ../analysis/plot_did_all_outcomes.R ../data/did_panel.csv 
-	cd ../analysis && ./plot_did_all_outcomes.R 
+	cd ../analysis && Rscript ./plot_did_all_outcomes.R 
 
-### Figure 7 
+## Figure 7 
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L927
 plots += plots/did_q_outcomes.pdf
 ./plots/did_q_outcomes.pdf: ../analysis/plot_did_all_outcomes.R ../data/did_panel.csv 
-	cd ../analysis && ./plot_did_all_outcomes.R
+	cd ../analysis && Rscript ./plot_did_all_outcomes.R
 
-### Figure 7 
+## Figure 7 
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L927
 plots += plots/did_match_outcomes.pdf
 ./plots/did_match_outcomes.pdf:  ../analysis/plot_did_all_outcomes.R ../data/did_panel.csv 
-	cd ../analysis && ./plot_did_all_outcomes.R
+	cd ../analysis && Rscript ./plot_did_all_outcomes.R
 
-### Figure 7 
+## Figure 7 
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L927
 plots += plots/did_ll_subst_outcomes.pdf
 ./plots/did_ll_subst_outcomes.pdf:  ../analysis/plot_did_all_outcomes.R ../data/did_panel.csv 
-	cd ../analysis && ./plot_did_all_outcomes.R
-
+	cd ../analysis && Rscript ./plot_did_all_outcomes.R
 
 #  Figure 8
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1040
 plots += ./plots/application_event_study.pdf
-./plots/application_event_study.pdf: ../analysis/plot_application_event_study.R 
+./plots/application_event_study.pdf: ../analysis/plot_application_event_study.R ../data/event_study_windows.csv
 	cd ../analysis && Rscript plot_application_event_study.R
 
 
@@ -177,57 +210,62 @@ plots += ./plots/application_event_study.pdf
 ###################
 
 
-# Figure 9
-# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1199
+# Figure A1
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1200
 plots += plots/organic_applications.pdf
-./plots/organic_applications.pdf: ../analysis/plot_organic_applications.R
+./plots/organic_applications.pdf: ../analysis/plot_organic_applications.R $(data)
 	cd ../analysis && Rscript plot_organic_applications.R
 
-### Figure 10: 
-# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1221
+# Figure A2: 
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1222
 plots += plots/follow_on_openings.pdf
 ./plots/follow_on_openings.pdf: ../analysis/plot_follow_on_openings.R $(data)
 	cd ../analysis && Rscript plot_follow_on_openings.R
 
-# Figure 12
-# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1354
-plots += plots/hours_zero.pdf
-./plots/hours_zero.pdf: ../analysis/plot_hours_zero.R
-	cd ../analysis && Rscript plot_hours_zero.R
-
-# Figure 13
-# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1382
-plots += plots/any_exper.pdf
-./plots/any_exper.pdf: ../analysis/plot_any_exper.R
-	cd ../analysis && Rscript plot_any_exper.R
-
-# Figure 14
-# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1405
-plots += plots/feedback.pdf
-./plots/feedback.pdf: ../analysis/plot_feedback.R
-	cd ../analysis && Rscript plot_feedback.R
-
 # Figure A3
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1301
 plots += ./plots/avg_wages_by_cat.pdf 
 ./plots/avg_wages_by_cat.pdf: ../analysis/avg_wages_by_cat.R 
 	cd ../analysis && Rscript avg_wages_by_cat.R
 
+# Figure B1
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1355
+plots += plots/hours_zero.pdf
+./plots/hours_zero.pdf: ../analysis/plot_hours_zero.R $(data)
+	cd ../analysis && Rscript plot_hours_zero.R
+
+# Figure B2
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1383
+plots += plots/any_exper.pdf
+./plots/any_exper.pdf: ../analysis/plot_any_exper.R $(data)
+	cd ../analysis && Rscript plot_any_exper.R
+
+# Figure B3
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1406
+plots += plots/feedback.pdf
+./plots/feedback.pdf: ../analysis/plot_feedback.R $(data)
+	cd ../analysis && Rscript plot_feedback.R
+
 # Figure B4
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1441
 plots += ./plots/event_study_hired_admin.pdf
-./plots/event_study_hired_admin.pdf: ../analysis/plot_event_study_hired_admin.R 
+./plots/event_study_hired_admin.pdf: ../analysis/plot_event_study_hired_admin.R ../data/event_study_hired.csv
 	cd ../analysis && Rscript plot_event_study_hired_admin.R
 
-# Table 1: 
+# Table A1: 
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1155
 tables += ./tables/randomization_check.tex
 ./tables/randomization_check.tex: ../analysis/randomization_check.R ../data/df_mw_first.csv 
 	cd ../analysis && Rscript randomization_check.R
 
-# Table 2
-# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1372
+# Table B1
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1353
 tables += tables/quantile_hours_worked.tex
 ./tables/quantile_hours_worked.tex: ../analysis/quantile_hours_worked.R ../data/event_study_windows_hr_v_fp.csv
 	cd ../analysis && Rscript quantile_hours_worked.R
 
+# Table B2
+# https://www.github.com/johnjosephhorton/minimum_wage/blob/main/writeup/minimum_wage.tex#L1414
 tables += ./tables/any_prior.tex
 ./tables/any_prior.tex: ../analysis/table_any_prior.R 
 	cd ../analysis && Rscript table_any_prior.R
@@ -248,14 +286,14 @@ website: $(project_name).pdf
 
 purge:
 	-rm -rf ../data
-	-rm ../remote_data.tar.gz
-	-rm ../remote_data.tar.gz.gpg
+	-rm ../minimum_wage_data.tar.gz
+	-rm ../minimum_wage_data.tar.gz.gpg
 	-cd plots && find . -maxdepth 1 -type f -print0 | xargs -0 -I {} mv {} unused && touch PLACEHOLDER.txt
 	-cd tables && find . -maxdepth 1 -type f -print0 | xargs -0 -I {} mv {} unused && touch PLACEHOLDER.txt
 	-cd parameters && find . -maxdepth 1 -type f -print0 | xargs -0 -I {} mv {} unused && touch PLACEHOLDER.txt
 
 
-$(project_name).pdf: create-dirs fetch-data $(project_name).tex $(project_name).bib $(parameters) $(LEVEL_PLOTS) $(LINE_PLOTS) $(WRAPPERS) $(COMBINED_TABLES) $(plots) $(tables)
+$(project_name).pdf: create-dirs fetch-data $(project_name).tex $(project_name).bib $(parameters) $(plots) $(tables)
 	pdflatex -shell-escape -interaction=batchmode $(project_name)
 	pdflatex -shell-escape -interaction=batchmode $(project_name)
 	bibtex $(project_name) 

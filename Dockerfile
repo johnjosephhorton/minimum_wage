@@ -1,4 +1,4 @@
-FROM ubuntu:latest AS base
+FROM ubuntu:24.04 AS base
 RUN apt-get update
 RUN apt-get -y install tzdata
 RUN apt-get -y install pkg-config
@@ -12,13 +12,16 @@ RUN apt-get -y install libnlopt-dev
 RUN apt-get -y install ghostscript
 RUN apt-get -y install wget
 RUN apt-get -y install python3 
+RUN apt-get -y install gnupg
+RUN apt-get -y install file
+RUN apt-get -y install curl
 
-from base as latex
+FROM base AS latex
 RUN apt-get -y install texlive-latex-base
 RUN apt-get -y install texlive-latex-extra
 
-from latex as rcran
-#setup R configs
+FROM latex AS rcran
+# setup R configs
 RUN echo "r <- getOption('repos'); r['CRAN'] <- 'http://cran.us.r-project.org'; options(repos = r);" > ~/.Rprofile
 RUN Rscript -e "install.packages('dotenv')"
 RUN Rscript -e "install.packages('cowplot')"
@@ -42,19 +45,14 @@ RUN Rscript -e "install.packages('stargazer')"
 RUN Rscript -e "install.packages('tidyr')"
 RUN Rscript -e "install.packages('remotes')"
 
-from rcran as main
+FROM rcran AS main
 
-RUN mkdir minimum_wage
-COPY . minimum_wage
-RUN cd minimum_wage/writeup && make minimum_wage.pdf
 
-WORKDIR /minimum_wage/
-CMD ["python3", "-m", "http.server", "8000"]
+# Set working directory inside the image
+WORKDIR /minimum_wage/writeup
 
-###############
-# Instructions: 
-###############
+# Copy the project folder into the container
+COPY . /minimum_wage
 
-# sudo docker build -t minimum_wage
-# sudo docker run -p 8080:8000 minimum_wage
-# Naviate to: http://localhost:8080/writeup/minimum_wage.pdf
+# Final run command
+CMD ["bash", "-c", "bash /minimum_wage/fetch_data.sh && make minimum_wage.pdf"]
